@@ -8,29 +8,20 @@ from email.mime.text import MIMEText
 from datetime import date 
 from dateutil.relativedelta import relativedelta, calendar
 
-DEBUG = False
-TEXT_MESSAGING = True
+import config
 
 # URL = ('https://www.optionsxpress.com.au/OXNetTools',
 # 	  '/Chains/index.aspx?SessionID=&Symbol=SPY&Ran',
 # 	  'ge=4&lstMarket=0&ChainType=&AdjNonStdOptions',
 # 	  '=OFF&lstMonths=&FromVB6=True')
 
-THEORETICALS_URL = ('https://www.optionsxpress.com.au/'
-				   'OXNetTools/Chains/index.aspx?Chai'
-				   'nType=3&SessionID=C73763A1C9E747C'
-				   'DBDB18D0276D6B780')
-
-
-GMAIL = 'xxx'
-PASSWORD = 'xxx'
-RETURNEMAIL = 'xxx'
-
-PHONE_NUMBER = 'xxx'
-GATEWAY = 'xxx'
 
 # def get_request(url):
-# 	r = requests.get(url)
+	# """
+	# This may be useful in the future as a simple
+	# way to access monthly contracts.
+	# """
+# 	r = requests.get(URL)
 # 	soup = BeautifulSoup(r.text)
 # 	return soup
 
@@ -129,8 +120,8 @@ def get_otm_elements(soup, cols, offset, result_range):
 	# print "results"
 	# print results
 	nums = [x for x in range(result_range) if x%cols==offset]
-	otm_puts = [results[x].text for x in nums if x <= len(results)]
-	return otm_puts
+	return [results[x].text for x in nums if x <= len(results)]
+
 
 def get_itm_elements(soup, cols, offset, result_range1, result_range2):
 	"""
@@ -217,25 +208,62 @@ def find_percent_difference(tup_list):
 		perc_dict[percent_difference] = x
 	return perc_dict
 
+def get_email_body(inputs, exp_date):
+	if inputs != None:
+
+		for x, y in inputs.iteritems():
+			if x > 0:
+				h_or_l = 'higher'
+			else:
+				h_or_l = 'lower'
+
+			perc = [i for i in str(x) if i.isdigit()]
+			perc_string = ''
+			for x in perc[:2]:
+				perc_string += x
+
+			header = "- - - - - - - - - \n**TESTING** \n\n"
+
+			body = ("Option expiring on {4} with price {0} "
+					"and theoretical price {1} is {2}% {3} "
+					"than theorical value. \n").format(str(y[0]),
+													   str(y[1]),
+													   perc_string,
+													   h_or_l,
+													   exp_date[:-2])
+
+			link = "{0}".format(config.settings['URL'])
+
+			return header, body, link
+
 
 def send_email(email_body):
-	s = smtplib.SMTP('smtp.gmail.com',587)
+	header, body, link = email_body
+	ADDRESS = config.sender['ADDRESS']
+	s = smtplib.SMTP('gmail.com',587)
 	s.starttls()
 	s.ehlo
 	try:
-		s.login(GMAIL, PASSWORD)
+		s.login(config.sender['ADDRESS'], config.sender['PASSWORD'])
 	except:
 		print "SMTP AUTHENTICATION ERROR"
 	msg = MIMEMultipart()
 
-	msg['Subject'] = '**$$$_SPY OPTIONS ALERT_$$$**'
-	msg.attach(MIMEText(email_body))
-	# s.sendmail(GMAIL, RETURNEMAIL, msg.as_string())
+	if config.settings['TEXT_MESSAGING'] == True:
+		"""
+		send only the important stuff to
+		keep the text msg short.
+		"""
+		msg.attach(MIMEText(body))
+		s.sendmail(config.sender['ADDRESS'], 
+				   config.receiver['PHONE_NUMBER'] + 
+				   config.receiver['GATEWAY'], msg.as_string())
 
-	if TEXT_MESSAGING == True:
-		s.sendmail(GMAIL, PHONE_NUMBER + GATEWAY, msg.as_string())
 	else:
-		pass
+		msg['Subject'] = '**$$$_SPY OPTIONS ALERT_$$$**'
+		msg.attach(MIMEText(str(email_body)))
+		s.sendmail(config.sender['ADDRESS'], 
+				   config.receiver['ADDRESS'], msg.as_string())
 
 	s.close()
 
@@ -244,6 +272,40 @@ def print_outputs(args, **kwargs):
 	print 'LAST TEN ' + str(last_ten)
 	print "MAX DEVIATION "+ str(max_dev)
 	print 'RESULT TUPS: ' + str(max_dev_put_tup)
+
+def beyond_threshold(input_dict, threshold):
+	"""
+	For now, we'll filter % difference between
+	theoretical and actual value at 65%
+	"""
+	return {x:input_dict[x] for x in input_dict if x >= int(threshold) or x <= int(-threshold)}
+
+def market_holidays_2015(weeks):
+	"""
+	Option contracts typically expire every 
+	Friday, except on Holidays, when they
+	may expire Thursday or on another
+	specified day.
+	"""
+
+	holidays = ['2015-01-01', '2015-19-01', '2015-02-16',
+				'2015-04-03', '2015-05-25', '2015-07-03',
+				'2015-07-04', '2015-09-07', '2015-11-26',
+				'2015-12-25', '2016-12-01']
+
+	return [x for x in weeks if x[:-2] not in holidays]
+
+def prices_above_threshold(prices, threshold):
+	"""
+	Only return results above a certain price.
+	(Contracts worth fractions of a cent often
+	have abnormally high percentage differences
+	from their theoretical value.) We filter 
+	these out because they're basically worthless.
+	"""
+
+	return [x for x in prices if float(x) >= threshold]
+
 
 
 # def notify_max_deviation_put():
@@ -275,54 +337,29 @@ def print_outputs(args, **kwargs):
 # 													  result_tup[1],
 # 												  str(result_tup[2])[1:-1])
 	
-# 	if DEBUG == True:
+# 	if config.settings['DEBUG'] == True:
 # 		output_tester(result, email_body)
 # 	else:
 # 		send_email(result, email_body)
 
-def beyond_threshold(input_dict):
-	"""
-	For now, we'll filter % difference between
-	theoretical and actual value at 65%
-	"""
-	return {x:input_dict[x] for x in input_dict if x >= 65 or x <= -65}
-
-def get_email_body(inputs, exp_date):
-	if inputs != None:
-
-		for x, y in inputs.iteritems():
-			if x > 0:
-				h_or_l = 'higher'
-			else:
-				h_or_l = 'lower'
-
-			perc = [i for i in str(x) if i.isdigit()]
-			perc_string = ''
-			for x in perc[:2]:
-				perc_string += x
-
-			email_body = ("- - - - - - - \n**TESTING** \n\n"
-						   "Option expiring on {5} with price {0} and theoretical price "
-						   "{1} is {2}% {3} than theorical value. \n {4}").format(str(y[0]),
-																				  str(y[1]),
-																				  perc_string,
-																	  h_or_l, THEORETICALS_URL,
-																	  exp_date[:-2])
-			return email_body
-
-
 def main(exp_date):
-	soup = get_request(THEORETICALS_URL, exp_date)
+	soup = get_request(config.settings['URL'], exp_date)
 	"""
 	We want 8 results from the money line,
 	so since last prices are every 11th element
 	in the HTML <td class='otm'>, we take 88
 	such elements (8x11=88)
+
+	Offset refers to the element's location
+	in the chart (1st column == offset=0)
 	"""
 
 	otm_lasts = get_otm_elements(soup, cols=11, offset=0, result_range=88)
 	itm_lasts = get_itm_elements(soup, cols=11, offset=0, result_range1=140,
 														  result_range2=230)
+
+	otm_lasts = prices_above_threshold(otm_lasts, config.value['threshold'])
+	itm_lasts = prices_above_threshold(itm_lasts, config.value['threshold'])
 
 	otm_theoreticals = get_otm_elements(soup, cols=11, offset=3, result_range=88)
 	itm_theoreticals = get_itm_elements(soup, cols=11, offset=3, result_range1=140,
@@ -331,43 +368,65 @@ def main(exp_date):
 	otm_tups = zip(otm_lasts, otm_theoreticals)
 	itm_tups = zip(itm_lasts, itm_theoreticals)
 
+
+
 	otm_diff = find_percent_difference(otm_tups)
 	itm_diff = find_percent_difference(itm_tups)
 
-	otms_beyond_threshold = beyond_threshold(otm_diff)
-	itms_beyond_threshold = beyond_threshold(itm_diff)
+	"""
+	Configuration for threshold of percentage differene between
+	theoretical value and actual value.
+	"""
+
+	otms_beyond_threshold = beyond_threshold(otm_diff, config.percentage['threshold'])
+	itms_beyond_threshold = beyond_threshold(itm_diff, config.percentage['threshold'])
+
+	if config.settings['DEBUG'] == True:
+		print 'RESULTS FOUND: '
+		print otms_beyond_threshold
+		print itms_beyond_threshold
+	else:
+		pass
 
 	otm_email_body = get_email_body(otms_beyond_threshold, exp_date)
-	imt_email_body = get_email_body(itms_beyond_threshold, exp_date)
+	itm_email_body = get_email_body(itms_beyond_threshold, exp_date)
 
+	print otm_email_body
 
 	if otm_email_body:
-		if DEBUG == True:
+		if config.settings['DEBUG'] == True:
 			output_tester(otm_email_body)
 		else:
 			send_email(otm_email_body)
 	else:
 		pass
 
-	if imt_email_body:
-		if DEBUG == True:
-			output_tester(imt_email_body)
+	if itm_email_body:
+		if config.settings['DEBUG'] == True:
+			output_tester(itm_email_body)
 		else:
-			send_email(imt_email_body)
+			send_email(itm_email_body)
 	else:
 		pass
 
 def main_by_week():
+	"""
+	Run main loop for each week.
+	"""
+
 	weeks = get_dates()
-	# print weeks
-	for x in weeks:
+	not_a_holiday = market_holidays_2015(weeks)
+	for x in not_a_holiday:
 		main(x)
 
 def output_tester(output):
 	with open('output_test.txt', 'a') as f:
-		f.write(output)
-		print "PRINTED"
-		print output
+		f.write(str(output))
+		if config.settings['DEBUG'] == True:
+			print "PRINTED"
+			print output
+		else:
+			pass
 
 
 if '__name__' == '__main__':
@@ -377,15 +436,17 @@ main_by_week()
 
 
 """
+
 NOTES
 
+Scan 3 strikes away from the moneyline
+in either direction.
 
-Scan each link (weekly, monthly, yearly)
-weekly - 6 strike prices from the money
+Include puts and calls
 
-calcualte % difference from theoretical values
-8 away from moneyline
+last price should be >= .1
 
+Factor in Market Holidays
 
 """
 
