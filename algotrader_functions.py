@@ -32,7 +32,7 @@ def get_dates():
 	and 1 indicating a monthly (3rd weekly contract)
 	"""
 
-	"""week1 == this friday"""
+	"""week1 = this friday"""
 	week1 = date.today() + relativedelta(weekday=calendar.FRIDAY)
 	week2 = week1 + relativedelta(weeks=+1)
 	week3 = week1 + relativedelta(weeks=+2)
@@ -104,6 +104,48 @@ def get_request(url, exp_date):
 	    'txtSessionID':'C73763A1C9E747CDBDB18D0276D6B780',
 	    'txtIsMini':'0',
 
+	}
+
+	response = requests.post(url, data=data)
+	soup = BeautifulSoup(response.text)
+	return soup
+
+url = ('https://www.optionsxpress.com.au/'
+		   'OXNetTools/Chains/index.aspx?Chai'
+		   'nType=3&SessionID=C73763A1C9E747C'
+		   'DBDB18D0276D6B780')
+
+def get_puts(url):
+
+	"""
+	All the code so far determines data for 
+	calls only. This submits the request
+	to obtain puts information.
+	"""
+	args = {
+		'symbol': "SPY", 
+		'range': "4", 
+		'exp': "3/20/2015;1", 
+		'currentimpvol': "12.25", 
+		'stockpricedisplay': "211.81"
+		}
+
+	data = {
+		'args': args,
+		'callput': "P",
+		'currentimpvol': "12.25",
+		'daystillexp': "37",
+		'exp': "3/20/2015;1",
+		'includediv': "false",
+		'interestrate': "1.00",
+		'isdetached': "0",
+		'lstPricerDivFreq': "91",
+		range: "4",
+		'sessionid': "C73763A1C9E747CDBDB18D0276D6B780",
+		'stockpricedisplay': "211.81",
+		'symbol': "SPY",
+		'txtPricerDividend': "1.13",
+		'txtPricerDividendDate': "12/19/2014"
 	}
 
 	response = requests.post(url, data=data)
@@ -240,7 +282,7 @@ def get_email_body(inputs, exp_date):
 def send_email(email_body):
 	header, body, link = email_body
 	ADDRESS = config.sender['ADDRESS']
-	s = smtplib.SMTP('gmail.com',587)
+	s = smtplib.SMTP('smtp.gmail.com',587)
 	s.starttls()
 	s.ehlo
 	try:
@@ -307,7 +349,6 @@ def prices_above_threshold(prices, threshold):
 	return [x for x in prices if float(x) >= threshold]
 
 
-
 # def notify_max_deviation_put():
 # 	"""
 # 	Output of version one of
@@ -342,7 +383,7 @@ def prices_above_threshold(prices, threshold):
 # 	else:
 # 		send_email(result, email_body)
 
-def main(exp_date):
+def run(exp_date):
 	soup = get_request(config.settings['URL'], exp_date)
 	"""
 	We want 8 results from the money line,
@@ -409,7 +450,7 @@ def main(exp_date):
 	else:
 		pass
 
-def main_by_week():
+def run_by_week():
 	"""
 	Run main loop for each week.
 	"""
@@ -417,7 +458,7 @@ def main_by_week():
 	weeks = get_dates()
 	not_a_holiday = market_holidays_2015(weeks)
 	for x in not_a_holiday:
-		main(x)
+		run(x)
 
 def output_tester(output):
 	with open('output_test.txt', 'a') as f:
@@ -428,10 +469,12 @@ def output_tester(output):
 		else:
 			pass
 
+def 
+
 
 if '__name__' == '__main__':
-	main_by_week
-main_by_week()
+	run_by_week
+run_by_week()
 
 
 
