@@ -10,6 +10,9 @@ from dateutil.relativedelta import relativedelta, calendar
 
 import config
 
+if config.settings['DEBUG'] == True:
+	import timing
+
 # URL = ('https://www.optionsxpress.com.au/OXNetTools',
 # 	  '/Chains/index.aspx?SessionID=&Symbol=SPY&Ran',
 # 	  'ge=4&lstMarket=0&ChainType=&AdjNonStdOptions',
@@ -264,11 +267,12 @@ def get_email_body(inputs, exp_date):
 			for x in perc[:2]:
 				perc_string += x
 
-			header = "- - - - - - - - - \n**TESTING** \n\n"
+			header = ("$ $ $ $ $ $ $ $ $ $ $ $ \n**TESTING**\n"
+					  "$ $ $ $ $ $ $ $ $ $ $ $ \n\n")
 
 			body = ("Option expiring on {4} with price {0} "
 					"and theoretical price {1} is {2}% {3} "
-					"than theorical value. \n").format(str(y[0]),
+					"than theoretical value.\n\n").format(str(y[0]),
 													   str(y[1]),
 													   perc_string,
 													   h_or_l,
@@ -303,7 +307,7 @@ def send_email(email_body):
 
 	else:
 		msg['Subject'] = '**$$$_SPY OPTIONS ALERT_$$$**'
-		msg.attach(MIMEText(str(email_body)))
+		msg.attach(MIMEText(header + body + link))
 		s.sendmail(config.sender['ADDRESS'], 
 				   config.receiver['ADDRESS'], msg.as_string())
 
@@ -386,6 +390,8 @@ def prices_above_threshold(prices, threshold):
 def run(exp_date, soup):
 
 	"""
+	Main loop.
+
 	We want 8 results from the money line,
 	so since last prices are every 11th element
 	in the HTML <td class='otm'>, we take 88
@@ -436,7 +442,11 @@ def run(exp_date, soup):
 		if config.settings['DEBUG'] == True:
 			output_tester(otm_email_body)
 		else:
-			send_email(otm_email_body)
+			r = prevent_dups(otm_email_body)
+			if r == True:
+				send_email(otm_email_body)
+			else:
+				pass
 	else:
 		pass
 
@@ -444,7 +454,11 @@ def run(exp_date, soup):
 		if config.settings['DEBUG'] == True:
 			output_tester(itm_email_body)
 		else:
-			send_email(itm_email_body)
+			r = prevent_dups(itm_email_body)
+			if r == True:
+				send_email(itm_email_body)
+			else:
+				pass
 	else:
 		pass
 
@@ -456,21 +470,31 @@ def main():
 	weeks = get_dates()
 	not_a_holiday = market_holidays_2015(weeks)
 	for exp_date in not_a_holiday:
-		# run(x, soup)
 		calls = get_request(config.settings['URL'], exp_date)
 		puts = get_puts(config.settings['URL'], exp_date)
-
 		run(exp_date, calls)
 		run(exp_date, puts)
 
 def output_tester(output):
-	with open('output_test.txt', 'a') as f:
-		f.write(str(output))
-		if config.settings['DEBUG'] == True:
-			print "PRINTED"
-			print output
-		else:
-			pass
+	print "PRINTED"
+	print output
+
+
+def prevent_dups(output):
+	header, body, link = output
+	lines = [line.strip() for line in open(config.notified['filename'])]
+	if body.rstrip() not in lines:
+		with open(config.notified['filename'], 'at') as f:
+			f.write(body)
+			return True
+	else:
+		print 'in lines'
+		return False
+
+
+
+
+
 
 if __name__ == '__main__':
 	main()
@@ -483,11 +507,8 @@ NOTES
 Scan 3 strikes away from the moneyline
 in either direction.
 
-Include puts and calls
-
-last price should be >= .1
-
-Factor in Market Holidays
+Give each message/output a unique id number
+to avoid sending duplicates
 
 """
 
