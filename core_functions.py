@@ -1,6 +1,8 @@
 from datetime import date 
 from dateutil.relativedelta import relativedelta, calendar
 
+import config
+
 def get_dates():
 	"""
 	lstMonths parameter is in the form of 
@@ -31,41 +33,47 @@ def market_holidays_2015(weeks):
 	specified day.
 	"""
 
-	holidays = ['2015-01-01', '2015-19-01', '2015-02-16',
-				'2015-04-03', '2015-05-25', '2015-07-03',
-				'2015-07-04', '2015-09-07', '2015-11-26',
-				'2015-12-25', '2016-12-01']
+	holidays = {'2015-01-01': None, '2015-19-01': None, '2015-02-16': None,
+				'2015-04-03': '2015-04-02', '2015-05-25': None, '2015-07-03': None,
+				'2015-07-04':None, '2015-09-07': None, '2015-11-26': None,
+				'2015-12-25':None, '2016-12-01': None}
 
-	return [x for x in weeks if x[:-2] not in holidays]
-
-def get_otm_elements(soup, cols, offset, result_range):
-	"""
-	A list of out of the money elements. Specific element
-	is chosen with offset number, and result-size
-	is chosen with result_range.
-	"""
-	results = [x for x in soup('td', {'class': 'otm'})]
-	# print "results"
-	# print results
-	nums = [x for x in range(result_range) if x%cols==offset]
-	return [results[x].text for x in nums if x <= len(results)]
+	new_list = []
+	for x in weeks:
+		y = x[:-2]
+		if y in holidays.keys():
+			new_list.append(holidays[y])
+		else:
+			new_list.append(x)
+	return new_list
 
 
-def get_itm_elements(soup, cols, offset, result_range1, result_range2):
-	"""
-	A list of in the money elements. Specific element
-	is chosen with offset number, and result-size
-	is chosen with result_range.
-	"""
-	results = [x for x in soup('td', {'class': 'itm'})]
-	nums = [x for x in range(result_range1, result_range2) if x%cols==offset]
-	itm_puts = [results[x].text for x in nums if x <= len(results)]
-	return [x for x in reversed(itm_puts)]
+# def get_otm_elements(soup, cols, offset, result_range):
+# 	"""
+# 	A list of out of the money elements. Specific element
+# 	is chosen with offset number, and result-size
+# 	is chosen with result_range.
+# 	"""
+# 	results = [x for x in soup('td', {'class': 'otm'})]
+# 	# print "results"
+# 	# print results
+# 	nums = [x for x in range(result_range) if x%cols==offset]
+# 	try:
+# 		return [results[x].text for x in nums if x <= len(results)]
+# 	except:
+# 		pass
 
-def get_strikes(soup):
-	"""Returns list of strike prices."""
- 	strikes_list = [(x.text).rstrip() for x in soup('a', {'class': 'strikes'})]
- 	strikes_list = set(strikes_list)
+
+# def get_itm_elements(soup, cols, offset, result_range1, result_range2):
+# 	"""
+# 	A list of in the money elements. Specific element
+# 	is chosen with offset number, and result-size
+# 	is chosen with result_range.
+# 	"""
+# 	results = [x for x in soup('td', {'class': 'itm'})]
+# 	nums = [x for x in range(result_range1, result_range2) if x%cols==offset]
+# 	itm_puts = [results[x].text for x in nums if x <= len(results)]
+# 	return [x for x in reversed(itm_puts)]
 
 def find_percent_difference(tup_list):
 	perc_dict = {}
@@ -96,8 +104,10 @@ def prices_above_threshold(prices, threshold):
 	from their theoretical value.) We filter 
 	these out because they're basically worthless.
 	"""
-
-	return [x for x in prices if float(x) >= threshold]
+	try:
+		return [x for x in prices if float(x) >= threshold]
+	except:
+		pass
 
 def prevent_dups(output):
 	header, body, link = output
