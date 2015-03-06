@@ -1,115 +1,220 @@
+import requests
+from bs4 import BeautifulSoup
+import smtplib
+import itertools
+from pyvirtualdisplay import Display
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
 import config
-import http_requests
 import core_functions as cf
-import misc_functions as mf
-import messaging
-import testing
+import http_requests
+import timing
 
-if config.settings['DEBUG'] == True:
-	import timing
+URL = ('https://www.optionsxpress.com.au/'
+	   'OXNetTools/Chains/index.aspx?Chai'
+	   'nType=3&SessionID=C73763A1C9E747C'
+	   'DBDB18D0276D6B780')
 
-def run(exp_date, soup):
-
-	"""
-	Main loop.
-
-	We want 8 results from the money line,
-	so since last prices are every 11th element
-	in the HTML <td class='otm'>, we take 88
-	such elements (8x11=88)
-
-	Offset refers to the element's location
-	in the chart (1st column == offset=0)
-	"""
-
-	otm_lasts = cf.get_otm_elements(soup, cols=11, offset=0, result_range=88)
-	itm_lasts = cf.get_itm_elements(soup, cols=11, offset=0, result_range1=140,
-															 result_range2=230)
-
-	otm_lasts = cf.prices_above_threshold(otm_lasts, config.value['threshold'])
-	itm_lasts = cf.prices_above_threshold(itm_lasts, config.value['threshold'])
-
-	otm_theoreticals = cf.get_otm_elements(soup, cols=11, offset=3, result_range=88)
-	itm_theoreticals = cf.get_itm_elements(soup, cols=11, offset=3, result_range1=140,
-												  					result_range2=230)
-
-	otm_tups = zip(otm_lasts, otm_theoreticals)
-	itm_tups = zip(itm_lasts, itm_theoreticals)
-
-
-
-
-	otm_diff = cf.find_percent_difference(otm_tups)
-	itm_diff = cf.find_percent_difference(itm_tups)
-
-	"""
-	Configuration for threshold of percentage difference between
-	theoretical value and actual value.
-	"""
-
-	otms_beyond_threshold = cf.beyond_threshold(otm_diff, config.percentage['threshold'])
-	itms_beyond_threshold = cf.beyond_threshold(itm_diff, config.percentage['threshold'])
-
-	if config.settings['DEBUG'] == True:
-		print 'RESULTS FOUND: '
-		print otms_beyond_threshold
-		print itms_beyond_threshold
-	else:
-		pass
-
-	otm_email_body = messaging.get_email_body(otms_beyond_threshold, exp_date)
-	itm_email_body = messaging.get_email_body(itms_beyond_threshold, exp_date)
-
-	if otm_email_body:
-		if config.settings['DEBUG'] == True:
-			testing.output_tester(otm_email_body)
+def get_email_text(row_tup):
+	if row_tup != None:
+		if row_tup[8] > 0:
+			h_or_l = 'higher'
 		else:
-			r = cf.prevent_dups(otm_email_body)
-			if r == True:
-				messaging.send_email(otm_email_body)
-			else:
-				pass
+			h_or_l = 'lower'
+
+		body = ("Option is {0}% {1} than theoretical price.\n"
+				"It is an {2} {3}.\n\n"
+				"Strike Price: {4}\nLast Price: {5}\n"
+				"Bid Price: {6}\nAsk Price: {7}\n"
+				"Theoretical Value: {8}\n\nEXPIRES: {9}").format(str(abs(int(row_tup[8]))), h_or_l,
+																   row_tup[5], row_tup[6], 
+																   row_tup[0], row_tup[1],
+																   row_tup[2], row_tup[3],
+																   row_tup[4], str(row_tup[7])[:10])
+
+	return body
+
+
+
+
+
+def send_email(email_body):
+
+	header = ("$ $ THIS IS AN ALERT FROM ALGOBOT IN "
+		  "REFERENCE TO THE FOLLOWING SPY OPTION: ")
+
+	link = "{0}".format(URL)
+
+	footer = ("\nOption price differential is determined "
+			"from the average of bid/ask price")
+	
+	ADDRESS = config.sender['ADDRESS']
+	s = smtplib.SMTP('smtp.gmail.com',587)
+	s.starttls()
+	s.ehlo
+	try:
+		s.login(config.sender['ADDRESS'], config.sender['PASSWORD'])
+	except:
+		print "SMTP AUTHENTICATION ERROR"
+	msg = MIMEMultipart()
+
+	if config.settings['TEXT_MESSAGING'] == True:
+		"""
+		send only the important stuff to
+		keep the text msg short.
+		"""
+		msg.attach(MIMEText(email_body))
+		s.sendmail(config.sender['ADDRESS'], 
+				   config.receiver['PHONE_NUMBER'] + 
+				   config.receiver['GATEWAY'], msg.as_string())
+
+	else:
+		msg['Subject'] = '**$$$_SPY OPTIONS ALERT_$$$**'
+		msg.attach(MIMEText(header + '\n' + 
+							email_body + '\n' +
+							link + '\n' +
+							footer))
+		s.sendmail(config.sender['ADDRESS'], 
+				   config.receiver['ADDRESS'], msg.as_string())
+
+	s.close()
+
+
+class Results():
+	def __init__(self, soup):
+		self.soup = soup
+		self.results = self.soup('tr', {'onmouseout': 'KillTimer();'})
+
+	def itm(self, dist_from_moneyline):
+		self.results = reversed(self.results)
+		self.itms = [(x, 'itm') for x in self.results if x.find(class_='itm')]
+		return self.itms[:dist_from_moneyline]
+
+	def otm(self, dist_from_moneyline):
+		self.otms = [(x, 'otm') for x in self.results if x.find(class_='otm')]
+		return self.otms[:dist_from_moneyline]
+
+	def itm_puts(self, dist_from_moneyline):
+		self.itms = [(x, 'itm') for x in self.results if x.find(class_='itm')]
+		return self.itms[:dist_from_moneyline]
+
+	def otm_puts(self, dist_from_moneyline):
+		self.results = reversed(self.results)
+		self.otms = [(x, 'otm') for x in self.results if x.find(class_='otm')]
+		return self.otms[:dist_from_moneyline]
+
+
+def get_element(row, element_no):
+	element = row.text.splitlines()[element_no]
+	return float(element)
+
+
+def get_tup(row):
+	
+	strike = get_element(row[0], 1)
+	last = get_element(row[0], 2)
+	bid = get_element(row[0], 3)
+	ask = get_element(row[0], 4)
+	theo = get_element(row[0], 5)
+	call_or_put = row[1]
+
+	return strike, last, bid, ask, theo, call_or_put
+
+def get_above_threshold(tup, threshold):
+	if tup[1] >= threshold:
+		return tup
 	else:
 		pass
 
-	if itm_email_body:
-		if config.settings['DEBUG'] == True:
-			testing.output_tester(itm_email_body)
+def find_percent_difference(tup):
+	bid_ask_avg = (tup[2] + tup[3]) / 2
+	# difference = float(tup[1]) - float(tup[4])
+	difference = bid_ask_avg - float(tup[4])
+	try:
+		percent_difference = difference / tup[4] * 100
+	except ZeroDivisionError:
+		percent_difference = 0
+	return percent_difference
+
+
+
+
+# def calls(exp_date):
+# 	soup = http_requests.get_calls(URL, exp_date)
+# 	result = Results(soup)
+# 	loop(soup, result.otm_calls(3), 'call', exp_date)
+# 	loop(soup, result.itm_calls(3), 'call', exp_date)
+
+# def puts(exp_date):
+# 	soup = http_requests.get_puts(URL, exp_date)
+# 	result = Results(soup)
+# 	loop(soup, result.otm_puts(3), 'put', exp_date)
+# 	loop(soup, result.itm_puts(3), 'put', exp_date)
+
+# def main():
+# 	exp_dates = cf.get_dates()
+# 	not_holiday = cf.market_holidays_2015(exp_dates)
+# 	for exp_date in not_holiday:
+
+# 		# calls(exp_date)
+# 		puts(exp_date)
+
+def prevent_dups(tup):
+	results = str(tup[0]), tup[5], tup[6]
+	results = str(results)
+	with open('results1.txt', 'a+') as f:
+		if not any(results == x.rstrip('\r\n') for x in f):
+			f.write(results + '\n')
+			return tup
 		else:
-			r = cf.prevent_dups(itm_email_body)
-			if r == True:
-				messaging.send_email(itm_email_body)
-			else:
-				pass
+			pass
+
+
+def loop(soup, call_or_put, exp_date):
+	email_body = ''
+	if call_or_put == 'call':
+		otms = Results(soup).otm(3)
+		itms = Results(soup).itm(3)
+	else:
+		otms = Results(soup).otm_puts(3)
+		itms = Results(soup).itm_puts(3)
+
+	for x in itertools.chain(itms, otms):
+		tup = get_tup(x)
+		above_price_threshold = get_above_threshold(tup, .1)
+		diff = find_percent_difference(tup)
+		if not diff >= 65 or diff <= -65 and above_price_threshold:
+			pass
+		else:
+			tup += (call_or_put, exp_date, diff)
+			prevent_dups(tup)
+			email_body += ('\n' + get_email_text(tup))
+
+		
+	if email_body:
+		send_email(email_body)
 	else:
 		pass
+
+def weeks(request, call_or_put):
+	loop(http_requests.get_monthly(request), call_or_put, 'monthly')
+	loop(http_requests.get_week_1(request), call_or_put, 'week 1')
+	loop(http_requests.get_week_2(request), call_or_put, 'week 2')
+	loop(http_requests.get_week_3(request), call_or_put, 'week 3')
+	loop(http_requests.get_week_4(request), call_or_put, 'week 4')
+	loop(http_requests.get_week_5(request), call_or_put, 'week 5')
 
 def main():
-	"""
-	Run main loop for each week.
-	"""
+	display = Display(visible=0, size=(800, 600))
+	display.start()
+	request = http_requests.Request(URL)
+	"""Get calls"""
+	weeks(request, 'call')
+	"""Get puts"""
+	request.get_put()
+	weeks(request, 'put')
+	request.driver.close()
 
-	weeks = cf.get_dates()
-	not_a_holiday = cf.market_holidays_2015(weeks)
-	for exp_date in not_a_holiday:
-		calls = http_requests.get_request(config.settings['URL'], exp_date)
-		puts = http_requests.get_puts(config.settings['URL'], exp_date)
-		run(exp_date, calls)
-		run(exp_date, puts)
-
-if __name__ == '__main__':
-	main()
-
-
-"""
-
-NOTES
-
-Scan 3 strikes away from the moneyline
-in either direction.
-
-Give each message/output a unique id number
-to avoid sending duplicates
-
-"""
-
+main()
